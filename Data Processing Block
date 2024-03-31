@@ -1,0 +1,59 @@
+import numpy as np
+from gnuradio import gr
+
+class doppler_velocity_calc(gr.sync_block):
+    """
+    A custom GNU Radio block to calculate velocity from a frequency shift.
+    """
+    def __init__(self, transmitted_freq=500, speed_of_light=3e8, samp_rate=2.4e6, fft_size=32768):
+        gr.sync_block.__init__(self,
+                               name="doppler_velocity_calc",
+                               in_sig=[np.complex64, np.complex64],
+                               out_sig=[np.float32])
+        self.transmitted_freq = transmitted_freq
+        self.speed_of_light = speed_of_light
+        self.samp_rate = samp_rate
+        self.fft_size = fft_size
+
+    def work(self, input_items, output_items):
+        in0 = input_items[0]  # Data from the first input (transmitted)
+        in1 = input_items[1]  # Data from the second input (received)
+        out = output_items[0]
+
+        # Perform FFT on both inputs
+        fft_result_0 = np.fft.fft(in0, self.fft_size)
+        fft_result_1 = np.fft.fft(in1, self.fft_size)
+
+        # Shift the FFT data so zero freq is in the middle
+        fft_result_0 = np.fft.fftshift(fft_result_0)
+        fft_result_1 = np.fft.fftshift(fft_result_1)
+
+        # Get the magnitude spectrum
+        magnitude_spectrum_0 = np.abs(fft_result_0)
+        magnitude_spectrum_1 = np.abs(fft_result_1)
+
+        # Subtract the spectrum of the transmitted signal from the received signal
+        spectrum_diff = magnitude_spectrum_1 - magnitude_spectrum_0
+
+        # Find the index of the peak in the differential spectrum
+        peak_index_diff = np.argmax(spectrum_diff)
+
+        # Correct the index based on the FFT shift to get the correct frequency bin
+        if peak_index_diff > self.fft_size / 2:
+            peak_index_diff -= self.fft_size
+
+        # Calculate the frequency from the peak index
+        frequency_bin_width = self.samp_rate / self.fft_size
+        doppler_shifted_frequency = peak_index_diff * frequency_bin_width
+
+        # Calculate the delta frequency
+        delta_f = doppler_shifted_frequency - self.transmitted_freq
+
+        # Calculate velocity using the Doppler effect formula
+        # Note: This formula assumes a one-way trip for the radio wave.
+        velocity = (delta_f * self.speed_of_light) / (2 * self.transmitted_freq)
+
+        # Store the calculated velocity in the output buffer
+        out[:] = velocity
+        print(out)
+        return len(output_items[0])
